@@ -13,9 +13,8 @@ import uvicorn
 
 app = FastAPI()
 
-# 🛠️ ఇక్కడ మార్పు చేశాను సార్: GET మరియు HEAD మెథడ్స్ రెండింటినీ యాక్సెప్ట్ చేస్తుంది.
-# దీనివల్ల "405 Method Not Allowed" ఎర్రర్ రాదు, అలాగే బాట్ నిద్రపోకుండా యాక్టివ్‌గా ఉంటుంది.
-@app.get("/", methods=["GET", "HEAD"])
+# 🛠️ పాత @app.get("/") తీసేసి, ఈ 3 లైన్లు పెట్టండి సార్
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"status": "Chanti Scanner Bot is running successfully, Sir!"}
 
