@@ -1,36 +1,43 @@
 import os
 import time
 from datetime import datetime
-import pytz  # ఇండియన్ టైమ్ జోన్ కోసం
+import pytz
 import pandas as pd
 import requests
 import yfinance as yf
+import threading
+
+# 🌟 Render Web Service కోసం FastAPI ఇంపోర్ట్ చేసాను
+from fastapi import FastAPI
+import uvicorn
+
+app = FastAPI()
+
+# Render అడిగే హోమ్ పేజీ వెబ్‌సైట్ లింక్ (దీనివల్ల No open ports ఎర్రర్ రాదు)
+@app.get("/")
+def home():
+    return {"status": "Chanti Scanner Bot is running successfully, Sir!"}
 
 # =====================================================================
-# ⚙️ Render Environment Variables నుండి వివరాలను సురక్షితంగా తీసుకుంటుంది
+# ⚙️ టోకెన్స్ సెటప్
 # =====================================================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 def send_telegram_alert(message):
-    # టోకెన్స్ లోడ్ అవ్వకపోతే ఎర్రర్ రాకుండా ప్రొటెక్షన్
     if not BOT_TOKEN or not CHAT_ID:
         print("⚠️ ఎర్రర్: Render లో BOT_TOKEN లేదా CHAT_ID సెట్ చేయలేదు సార్!")
         return
-        
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown", "disable_web_page_preview": True}
     try:
-        response = requests.post(url, json=payload)
-        if response.status_code != 200:
-            print(f"⚠️ టెలిగ్రామ్ మెసేజ్ పంపడంలో విఫలం: {response.text}")
+        requests.post(url, json=payload)
     except Exception as e:
         print(f"⚠️ టెలిగ్రామ్ నెట్‌వర్క్ ఎర్రర్: {e}")
 
 def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
     if len(df) < lookback + 5:
         return df
-
     O = df['Open'].to_numpy().flatten()
     H = df['High'].to_numpy().flatten()
     L = df['Low'].to_numpy().flatten()
@@ -46,7 +53,6 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
 
     long_signals = [False] * N
     short_signals = [False] * N
-
     zone_high = None
     zone_low = None
     price_was_outside_above = False
@@ -60,18 +66,15 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
                     boring_count = b
                 else:
                     break
-
             if boring_count > 0:
                 idx_prev = i - (boring_count + 1)
                 if C[idx_prev] > O[idx_prev] and C[i] > H[i - 1]:
                     float_max_h = H[i - 1]
                     float_min_l = L[i - 1]
-                    
                     if boring_count > 1:
                         for k in range(1, boring_count + 1):
                             float_max_h = max(float_max_h, H[i - k])
                             float_min_l = min(float_min_l, L[i - k])
-
                     support_found = False
                     for j in range(boring_count + 2, lookback + 1):
                         idx_j = i - j
@@ -80,7 +83,6 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
                         if L[idx_j] >= float_min_l and L[idx_j] <= float_max_h:
                             support_found = True
                             break
-
                     if support_found:
                         zone_high = float_max_h
                         zone_low = float_min_l
@@ -90,11 +92,9 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
         if zone_high is not None and zone_low is not None:
             if C[i] > zone_high: price_was_outside_above = True
             if C[i] < zone_low: price_was_outside_below = True
-
             if price_was_outside_above and L[i] <= zone_high and C[i] > zone_high and C[i] > O[i]:
                 long_signals[i] = True
                 price_was_outside_above = False
-
             if price_was_outside_below and H[i] >= zone_low and C[i] < zone_low and C[i] < O[i]:
                 short_signals[i] = True
                 price_was_outside_below = False
@@ -139,18 +139,15 @@ combined_stocks = [
 ]
 
 def run_scanner():
-    print("📡 చంటి గెట్ ట్రేడర్ స్కానర్ ప్రారంభమైంది... [F&O + Nifty 100]")
+    print("📡 చంటి గెట్ ట్రేడర్ స్కానర్ ప్రారంభమైంది...")
     total_signals_found = 0
-
     for stock in combined_stocks:
         try:
             df = yf.download(stock, period="1y", interval="1d", progress=False, auto_adjust=True)
             if df.empty: continue
-
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.reset_index()
-
             analyzed_df = scan_chanti_best_logic(df)
             if analyzed_df is None or len(analyzed_df) == 0: continue
             
@@ -161,7 +158,6 @@ def run_scanner():
             if is_long or is_short:
                 clean_name = stock.replace(".NS", "")
                 date_str = latest_row['Date'].strftime('%Y-%m-%d') if 'Date' in analyzed_df.columns else datetime.now().strftime('%Y-%m-%d')
-                
                 try:
                     close_price = float(latest_row['Close'].iloc[0]) if hasattr(latest_row['Close'], 'iloc') else float(latest_row['Close'])
                 except:
@@ -173,77 +169,54 @@ def run_scanner():
                 moneycontrol_google = f"https://www.google.com/search?q={clean_name}+moneycontrol+share+price"
 
                 if is_long:
-                    msg = (
-                        f"🟢 *CHANTI BUY SIGNAL!*\n"
-                        f"📌 *స్టాక్ పేరు:* `{clean_name}`\n"
-                        f"📅 *తేదీ:* {date_str}\n"
-                        f"💰 *Close Price:* ₹{close_price:.2f}\n\n"
-                        f"🛠️ *1-CLICK ANALYSIS LINKS:*\n"
-                        f"📈 [TradingView చార్ట్ చూడండి]({tradingview_url})\n"
-                        f"📊 [Screener ఫండమెంటల్స్ చూడండి]({screener_url})\n"
-                        f"📰 [Trendlyne న్యూస్]({trendlyne_google})\n"
-                        f"💰 [Moneycontrol]({moneycontrol_google})\n"
-                    )
+                    msg = f"🟢 *CHANTI BUY SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n🛠️ [TradingView చార్ట్]({tradingview_url}) | [Screener]({screener_url})"
                     send_telegram_alert(msg)
                     total_signals_found += 1
-                    
                 elif is_short:
-                    msg = (
-                        f"🔴 *CHANTI SELL SIGNAL!*\n"
-                        f"📌 *స్టాక్ పేరు:* `{clean_name}`\n"
-                        f"📅 *తేదీ:* {date_str}\n"
-                        f"💰 *Close Price:* ₹{close_price:.2f}\n\n"
-                        f"🛠️ *1-CLICK ANALYSIS LINKS:*\n"
-                        f"📈 [TradingView చార్ట్ చూడండి]({tradingview_url})\n"
-                        f"📊 [Screener ఫండమెంటల్స్ చూడండి]({screener_url})\n"
-                        f"📰 [Trendlyne న్యూస్]({trendlyne_google})\n"
-                        f"💰 [Moneycontrol]({moneycontrol_google})\n"
-                    )
+                    msg = f"🔴 *CHANTI SELL SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n🛠️ [TradingView చార్ట్]({tradingview_url}) | [Screener]({screener_url})"
                     send_telegram_alert(msg)
                     total_signals_found += 1
-                    
             time.sleep(0.3)
         except Exception:
             continue
 
     if total_signals_found == 0:
-        success_msg = f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ విజయవంతంగా పూర్తయింది.\n\n❌ కానీ మన పక్కా లాజిక్ ప్రకారం ఈరోజు *ఏ స్టాక్‌లోనూ సిగ్నల్స్ దొరకలేదు*."
-        send_telegram_alert(success_msg)
+        send_telegram_alert(f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. ఏ స్టాక్‌లోనూ సిగ్నల్స్ దొరకలేదు.")
     else:
-        success_msg = f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. మొత్తం *{total_signals_found}* స్టాక్స్‌లో తాజా సిగ్నల్స్ దొరికాయి. వివరాలు పైన పంపాను."
-        send_telegram_alert(success_msg)
+        send_telegram_alert(f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. మొత్తం *{total_signals_found}* స్టాక్స్‌లో సిగ్నల్స్ దొరికాయి.")
 
-if __name__ == "__main__":
+# 🌟 బ్యాక్‌గ్రౌండ్ లూప్ ఒక విడిగా థ్రెడ్ (Thread) లో రన్ అవుతుంది
+def background_scheduler():
     ist = pytz.timezone('Asia/Kolkata')
     start_time_str = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
     
-    # బాట్ రన్ అవ్వడం స్టార్ట్ కాగానే టెలిగ్రామ్‌కు వెళ్లే Welcome Note
-    welcome_msg = f"🚀 *CHANTI SCANNER START అయింది సార్!*\n\n" \
-                  f"బాట్ Render లో విజయవంతంగా ప్రారంభమైంది.\n" \
-                  f"📅 *ప్రారంభమైన సమయం:* `{start_time_str} IST`\n\n" \
-                  f"💡 _గమనిక: ఇక నుండి ప్రతిరోజూ సాయంత్రం కరెక్ట్‌గా *5:00 PM IST* కి బాట్ ఆటోమేటిక్‌గా 242 స్టాక్స్‌ను స్కాన్ చేసి మీకు ఇక్కడే అప్‌డేట్ పంపుతుంది సార్._"
-    
-    print("🚀 బాట్ ఆన్ అయింది. టెలిగ్రామ్‌కు వెల్‌కమ్ నోట్ పంపుతున్నాను...")
+    welcome_msg = f"🚀 *CHANTI SCANNER Web Service START అయింది సార్!*\n\n📅 *సమయం:* `{start_time_str} IST`\n⏰ ప్రతిరోజు సాయంత్రం *5:00 PM IST* కి ఆటోమేటిక్‌గా స్కాన్ రన్ అవుతుంది."
     send_telegram_alert(welcome_msg)
     
     already_run_today = False
-
     while True:
         now_ist = datetime.now(ist)
         current_hour = now_ist.hour
         current_minute = now_ist.minute
-        current_weekday = now_ist.weekday()  # 0=Monday, 5=Saturday, 6=Sunday
+        current_weekday = now_ist.weekday()
 
         if current_weekday < 5:
-            # సాయంత్రం 5:00 PM (Hour == 17, Minute == 00)
             if current_hour == 17 and current_minute == 0 and not already_run_today:
-                print(f"⏰ సమయం సాయంత్రం 5:00 PM అయింది. స్కాన్ స్టార్ట్ చేస్తున్నాను... తేదీ: {now_ist.strftime('%Y-%m-%d')}")
                 run_scanner()
                 already_run_today = True  
-            
             if current_hour == 0:
                 already_run_today = False
         else:
             already_run_today = False
 
         time.sleep(30)
+
+# సర్వర్ ఆన్ కాగానే బ్యాక్‌గ్రౌండ్ లూప్‌ను స్టార్ట్ చేస్తుంది
+@app.on_event("startup")
+def startup_event():
+    threading.Thread(target=background_scheduler, daemon=True).start()
+
+if __name__ == "__main__":
+    # Render ఇచ్చే పోర్ట్‌ను ఆటోమేటిక్‌గా రీడ్ చేస్తుంది
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
