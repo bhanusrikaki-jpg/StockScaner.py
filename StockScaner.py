@@ -8,13 +8,14 @@ import yfinance as yf
 import threading
 
 # 🌟 Render Web Service కోసం FastAPI ఇంపోర్ట్ చేసాను
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 import uvicorn
 
 app = FastAPI()
 
-# Render అడిగే హోమ్ పేజీ వెబ్‌సైట్ లింక్ (దీనివల్ల No open ports ఎర్రర్ రాదు)
-@app.get("/")
+# 🛠️ ఇక్కడ మార్పు చేశాను సార్: GET మరియు HEAD మెథడ్స్ రెండింటినీ యాక్సెప్ట్ చేస్తుంది.
+# దీనివల్ల "405 Method Not Allowed" ఎర్రర్ రాదు, అలాగే బాట్ నిద్రపోకుండా యాక్టివ్‌గా ఉంటుంది.
+@app.get("/", methods=["GET", "HEAD"])
 def home():
     return {"status": "Chanti Scanner Bot is running successfully, Sir!"}
 
@@ -165,8 +166,6 @@ def run_scanner():
 
                 tradingview_url = f"https://in.tradingview.com/chart/?symbol=NSE:{clean_name}"
                 screener_url = f"https://www.screener.in/company/{clean_name}/"
-                trendlyne_google = f"https://www.google.com/search?q={clean_name}+trendlyne+share+price"
-                moneycontrol_google = f"https://www.google.com/search?q={clean_name}+moneycontrol+share+price"
 
                 if is_long:
                     msg = f"🟢 *CHANTI BUY SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n🛠️ [TradingView చార్ట్]({tradingview_url}) | [Screener]({screener_url})"
@@ -190,7 +189,7 @@ def background_scheduler():
     ist = pytz.timezone('Asia/Kolkata')
     start_time_str = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
     
-    welcome_msg = f"🚀 *CHANTI SCANNER Web Service START అయింది సార్!*\n\n📅 *సమయం:* `{start_time_str} IST`\n⏰ ప్రతిరోజు సాయంత్రం *5:00 PM IST* కి ఆటోమేటిక్‌గా స్కాన్ రన్ అవుతుంది."
+    welcome_msg = f"🚀 *CHANTI SCANNER Web Service START అయింది సార్!*\n\n📅 *సమయం:* `{start_time_str} IST`\n⏰ ప్రతిరోజు సాయంత్రం *5:00 PM IST* ki ఆటోమేటిక్‌గా స్కాన్ రన్ అవుతుంది."
     send_telegram_alert(welcome_msg)
     
     already_run_today = False
