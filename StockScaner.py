@@ -13,7 +13,7 @@ import uvicorn
 
 app = FastAPI()
 
-# 🛠️ పాత @app.get("/") తీసేసి, ఈ 3 లైన్లు పెట్టండి సార్
+# 🛠️ హోమ్ రూట్ సెటప్
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"status": "Chanti Scanner Bot is running successfully, Sir!"}
@@ -163,15 +163,21 @@ def run_scanner():
                 except:
                     close_price = float(latest_row['Close'])
 
+                # 🔗 అన్ని లింకులు ఇక్కడ జెనరేట్ అవుతాయి
                 tradingview_url = f"https://in.tradingview.com/chart/?symbol=NSE:{clean_name}"
                 screener_url = f"https://www.screener.in/company/{clean_name}/"
+                moneycontrol_url = f"https://www.moneycontrol.com/india/stockpricequote/analytics/link/link-{clean_name.lower()}"
+                trendlyne_url = f"https://trendlyne.com/equity/{clean_name}/"
+
+                # 📜 మెసేజ్ ఫార్మాట్ - ఇందులో కొత్తగా Trendlyne మరియు Moneycontrol యాడ్ చేసాను
+                links_str = f"🛠️ [TradingView]({tradingview_url}) | [Screener]({screener_url}) | [Moneycontrol]({moneycontrol_url}) | [Trendlyne]({trendlyne_url})"
 
                 if is_long:
-                    msg = f"🟢 *CHANTI BUY SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n🛠️ [TradingView చార్ట్]({tradingview_url}) | [Screener]({screener_url})"
+                    msg = f"🟢 *CHANTI BUY SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n{links_str}"
                     send_telegram_alert(msg)
                     total_signals_found += 1
                 elif is_short:
-                    msg = f"🔴 *CHANTI SELL SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n🛠️ [TradingView చార్ట్]({tradingview_url}) | [Screener]({screener_url})"
+                    msg = f"🔴 *CHANTI SELL SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n{links_str}"
                     send_telegram_alert(msg)
                     total_signals_found += 1
             time.sleep(0.3)
