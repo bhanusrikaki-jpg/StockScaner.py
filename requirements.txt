@@ -2,5 +2,6 @@ pandas
 requests
 yfinance
 pytz
+deep-translator
 fastapi
 uvicorn
