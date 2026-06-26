@@ -1,43 +1,84 @@
-import os
 import time
 from datetime import datetime
-import pytz
+import pytz  # ఇండియన్ టైమ్ జోన్ కోసం (pip install pytz)
 import pandas as pd
 import requests
 import yfinance as yf
+import urllib.parse
+import xml.etree.ElementTree as ET
+from deep_translator import GoogleTranslator  # 100% ఉచిత తెలుగు ట్రాన్స్‌లేటర్
 import threading
 
-# 🌟 Render Web Service కోసం FastAPI ఇంపోర్ట్ చేసాను
-from fastapi import FastAPI, Response
+# 🚀 FastAPI లైబ్రరీలు
+from fastapi import FastAPI
 import uvicorn
-
-app = FastAPI()
-
-# 🛠️ హోమ్ రూట్ సెటప్
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"status": "Chanti Scanner Bot is running successfully, Sir!"}
+import os
 
 # =====================================================================
-# ⚙️ టోకెన్స్ సెటప్
+# ⚙️ మీ టెలిగ్రామ్ వివరాలు ఇక్కడ ఎంటర్ చేయండి
 # =====================================================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-def send_telegram_alert(message):
-    if not BOT_TOKEN or not CHAT_ID:
-        print("⚠️ ఎర్రర్: Render లో BOT_TOKEN లేదా CHAT_ID సెట్ చేయలేదు సార్!")
-        return
+# FastAPI యాప్ క్రియేషన్ (Render కోసం)
+app = FastAPI()
+
+@app.get("/")
+def home():
+    return {"status": "running", "bot_name": "Chanti AI Scanner", "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+def send_telegram_alert(message, disable_preview=True):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown", "disable_web_page_preview": True}
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown", "disable_web_page_preview": disable_preview}
     try:
-        requests.post(url, json=payload)
+        response = requests.post(url, json=payload)
+        if response.status_code != 200:
+            print(f"⚠️ టెలిగ్రామ్ మెసేజ్ పంపడంలో విఫలం: {response.text}")
     except Exception as e:
         print(f"⚠️ టెలిగ్రామ్ నెట్‌వర్క్ ఎర్రర్: {e}")
+
+def get_cnbc_news_free(stock_name):
+    """CNBC / Google News నుండి ఉచితంగా తాజా వార్తను మరియు దాని అసలైన ఒరిజినల్ CNBC లింక్‌ను సేకరించి తెలుగులోకి మారుస్తుంది"""
+    try:
+        search_query = f"{stock_name} share news CNBC"
+        encoded_query = urllib.parse.quote(search_query)
+        rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-IN&gl=IN&ceid=IN:en"
+        
+        response = requests.get(rss_url, timeout=10)
+        if response.status_code == 200:
+            root = ET.fromstring(response.content)
+            items = root.findall('.//item')
+            
+            if items:
+                first_item = items[0]
+                english_title = first_item.find('title').text
+                google_news_link = first_item.find('link').text
+                
+                # గూగుల్ లింక్ నుండి ఒరిజినల్ CNBC యుఆర్ఎల్ ని విడదీయడం
+                original_link = google_news_link
+                try:
+                    res = requests.head(google_news_link, allow_redirects=True, timeout=5)
+                    original_link = res.url
+                except:
+                    try:
+                        res = requests.get(google_news_link, timeout=5)
+                        original_link = res.url
+                    except:
+                        pass
+                
+                # ఇంగ్లీష్ హెడ్‌లైన్‌ను అచ్చ తెలుగులోకి మార్చడం
+                telugu_news = GoogleTranslator(source='en', target='te').translate(english_title)
+                return telugu_news, original_link
+                
+        return None, None
+    except Exception as e:
+        print(f"⚠️ వార్త సేకరించడంలో లోపం: {e}")
+        return None, None
 
 def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
     if len(df) < lookback + 5:
         return df
+
     O = df['Open'].to_numpy().flatten()
     H = df['High'].to_numpy().flatten()
     L = df['Low'].to_numpy().flatten()
@@ -53,6 +94,7 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
 
     long_signals = [False] * N
     short_signals = [False] * N
+
     zone_high = None
     zone_low = None
     price_was_outside_above = False
@@ -66,15 +108,18 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
                     boring_count = b
                 else:
                     break
+
             if boring_count > 0:
                 idx_prev = i - (boring_count + 1)
                 if C[idx_prev] > O[idx_prev] and C[i] > H[i - 1]:
                     float_max_h = H[i - 1]
                     float_min_l = L[i - 1]
+                    
                     if boring_count > 1:
                         for k in range(1, boring_count + 1):
                             float_max_h = max(float_max_h, H[i - k])
                             float_min_l = min(float_min_l, L[i - k])
+
                     support_found = False
                     for j in range(boring_count + 2, lookback + 1):
                         idx_j = i - j
@@ -83,6 +128,7 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
                         if L[idx_j] >= float_min_l and L[idx_j] <= float_max_h:
                             support_found = True
                             break
+
                     if support_found:
                         zone_high = float_max_h
                         zone_low = float_min_l
@@ -92,9 +138,11 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
         if zone_high is not None and zone_low is not None:
             if C[i] > zone_high: price_was_outside_above = True
             if C[i] < zone_low: price_was_outside_below = True
+
             if price_was_outside_above and L[i] <= zone_high and C[i] > zone_high and C[i] > O[i]:
                 long_signals[i] = True
                 price_was_outside_above = False
+
             if price_was_outside_below and H[i] >= zone_low and C[i] < zone_low and C[i] < O[i]:
                 short_signals[i] = True
                 price_was_outside_below = False
@@ -103,6 +151,7 @@ def scan_chanti_best_logic(df, boring_pct=50, lookback=50):
     df['Short_Signal'] = short_signals
     return df
 
+# సరిచేసిన లేటెస్ట్ సింబల్స్ కలిగిన పూర్తి లిస్ట్
 combined_stocks = [
     "AARTIIND.NS", "ABB.NS", "ABBOTINDIA.NS", "ABCAPITAL.NS", "ABFRL.NS", "ACC.NS", 
     "ADANIENT.NS", "ADANIGREEN.NS", "ADANIPORTS.NS", "ADANIPOWER.NS", "ALKEM.NS", "AMBUJACEM.NS", 
@@ -128,86 +177,128 @@ combined_stocks = [
     "MFSL.NS", "MGL.NS", "MOTHERSON.NS", "MPHASIS.NS", "MRF.NS", "MUTHOOTFIN.NS", 
     "NATIONALUM.NS", "NAUKRI.NS", "NAVINFLUOR.NS", "NESTLEIND.NS", "NMDC.NS", "NTPC.NS", 
     "OBEROIRLTY.NS", "ONGC.NS", "PAGEIND.NS", "PERSISTENT.NS", "PETRONET.NS", "PFC.NS", 
-    "PIDILITIND.NS", "PIIND.NS", "PNB.NS", "POLYCAB.NS", "POLYMED.NS", "POWGRID.NS", 
+    "PIDILITIND.NS", "PIIND.NS", "PNB.NS", "POLYCAB.NS", "POLYMED.NS", "POWERGRID.NS", 
     "PVRINOX.NS", "RAMCOCEM.NS", "RBLBANK.NS", "RECLTD.NS", "RELIANCE.NS", "SAIL.NS", 
     "SBICARD.NS", "SBILIFE.NS", "SBIN.NS", "SHREECEM.NS", "SHRIRAMFIN.NS", "SIEMENS.NS", 
     "SRF.NS", "SUNPHARMA.NS", "SUNTV.NS", "SYNGENE.NS", "TATACHEM.NS", "TATACOMM.NS", 
     "TATACONSUM.NS", "TATAMOTORS.NS", "TATAPOWER.NS", "TATASTEEL.NS", "TCS.NS", "TECHM.NS", 
     "TITAN.NS", "TORNTPHARM.NS", "TORNTPOWER.NS", "TRENT.NS", "TVSMOTOR.NS", "UBL.NS", 
     "ULTRACEMCO.NS", "UNITDSPR.NS", "UPL.NS", "VBL.NS", "VEDL.NS", "VOLTAS.NS", 
-    "WIPRO.NS", "YESBANK.NS", "ZEEL.NS", "ZOMATO.NS"
+    "WIPRO.NS", "YESBANK.NS", "ZEEL.NS", "ETERNAL.NS",
 ]
 
 def run_scanner():
-    print("📡 చంటి గెట్ ట్రేడర్ స్కానర్ ప్రారంభమైంది...")
+    print("📡 చంటి గెట్ ట్రేడర్ స్కానర్ ప్రారంభమైంది... [F&O + Nifty 100]")
     total_signals_found = 0
+    signals_today_list = []
+
+    print("📥 అన్ని స్టాక్స్ డేటాను ఒకేసారి బల్క్ డౌన్‌లోడ్ చేస్తున్నాను...")
+    try:
+        bulk_data = yf.download(combined_stocks, period="1y", interval="1d", group_by='ticker', progress=False, auto_adjust=False)
+    except Exception as e:
+        print(f"⚠️ బల్క్ డౌన్‌లోడ్ లోపం: {e}")
+        return
+
     for stock in combined_stocks:
         try:
-            df = yf.download(stock, period="1y", interval="1d", progress=False, auto_adjust=True)
-            if df.empty: continue
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df = df.reset_index()
+            if stock not in bulk_data.columns.levels[0]: continue
+            df = bulk_data[stock].dropna(subset=['Close']).reset_index()
+            if df.empty or len(df) < 55: continue
+
             analyzed_df = scan_chanti_best_logic(df)
             if analyzed_df is None or len(analyzed_df) == 0: continue
             
             latest_row = analyzed_df.iloc[-1]
-            is_long = bool(latest_row['Long_Signal']) if not isinstance(latest_row['Long_Signal'], pd.Series) else bool(latest_row['Long_Signal'].iloc[0])
-            is_short = bool(latest_row['Short_Signal']) if not isinstance(latest_row['Short_Signal'], pd.Series) else bool(latest_row['Short_Signal'].iloc[0])
+            is_long = bool(latest_row['Long_Signal'])
+            is_short = bool(latest_row['Short_Signal'])
             
             if is_long or is_short:
                 clean_name = stock.replace(".NS", "")
-                date_str = latest_row['Date'].strftime('%Y-%m-%d') if 'Date' in analyzed_df.columns else datetime.now().strftime('%Y-%m-%d')
-                try:
-                    close_price = float(latest_row['Close'].iloc[0]) if hasattr(latest_row['Close'], 'iloc') else float(latest_row['Close'])
-                except:
-                    close_price = float(latest_row['Close'])
-
-                # 🔗 అన్ని లింకులు ఇక్కడ జెనరేట్ అవుతాయి
+                close_price = float(latest_row['Close'])
+                date_str = latest_row['Date'].strftime('%Y-%m-%d') if 'Date' in df.columns else datetime.now().strftime('%Y-%m-%d')
+                
+                emoji = "🟢 *BUY*" if is_long else "🔴 *SELL*"
+                
                 tradingview_url = f"https://in.tradingview.com/chart/?symbol=NSE:{clean_name}"
                 screener_url = f"https://www.screener.in/company/{clean_name}/"
-                moneycontrol_url = f"https://www.moneycontrol.com/india/stockpricequote/analytics/link/link-{clean_name.lower()}"
-                trendlyne_url = f"https://trendlyne.com/equity/{clean_name}/"
+                trendlyne_google = f"https://www.google.com/search?q={clean_name}+trendlyne+share+price"
+                moneycontrol_google = f"https://www.google.com/search?q={clean_name}+moneycontrol+share+price"
 
-                # 📜 మెసేజ్ ఫార్మాట్ - ఇందులో కొత్తగా Trendlyne మరియు Moneycontrol యాడ్ చేసాను
-                links_str = f"🛠️ [TradingView]({tradingview_url}) | [Screener]({screener_url}) | [Moneycontrol]({moneycontrol_url}) | [Trendlyne]({trendlyne_url})"
-
-                if is_long:
-                    msg = f"🟢 *CHANTI BUY SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n{links_str}"
-                    send_telegram_alert(msg)
-                    total_signals_found += 1
-                elif is_short:
-                    msg = f"🔴 *CHANTI SELL SIGNAL!*\n📌 *స్టాక్ పేరు:* `{clean_name}`\n📅 *తేదీ:* {date_str}\n💰 *Close Price:* ₹{close_price:.2f}\n\n{links_str}"
-                    send_telegram_alert(msg)
-                    total_signals_found += 1
-            time.sleep(0.3)
+                # 4:00 PM కి మొదటి లిస్ట్ అలర్ట్
+                msg = (
+                    f"{emoji} *CHANTI SIGNAL!*\n"
+                    f"📌 *స్టాక్ పేరు:* `{clean_name}`\n"
+                    f"📅 *తేదీ:* {date_str}\n"
+                    f"💰 *Close Price:* ₹{close_price:.2f}\n\n"
+                    f"🛠️ *1-CLICK ANALYSIS LINKS:*\n"
+                    f"📈 [TradingView చార్ట్ చూడండి]({tradingview_url})\n"
+                    f"📊 [Screener ఫండమెంటల్స్ చూడండి]({screener_url})\n"
+                    f"📰 [Trendlyne న్యూస్]({trendlyne_google})\n"
+                    f"💰 [Moneycontrol]({moneycontrol_google})\n"
+                )
+                send_telegram_alert(msg)
+                total_signals_found += 1
+                signals_today_list.append({'name': clean_name, 'type': 'BUY' if is_long else 'SELL'})
+                
         except Exception:
             continue
 
     if total_signals_found == 0:
-        send_telegram_alert(f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. ఏ స్టాక్‌లోనూ సిగ్నల్స్ దొరకలేదు.")
+        success_msg = f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ విజయవంతంగా పూర్తయింది.\n\n❌ కానీ మన పక్కా లాజిక్ ప్రకారం ఈరోజు *ఏ స్టాక్‌లోనూ సిగ్నల్స్ దొరకలేదు*."
+        send_telegram_alert(success_msg)
+        return
     else:
-        send_telegram_alert(f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. మొత్తం *{total_signals_found}* స్టాక్స్‌లో సిగ్నల్స్ దొరికాయి.")
+        success_msg = f"✅ *CHANTI SCANNER UPDATE*\n\nసార్, ఈరోజు స్కాన్ పూర్తయింది. మొత్తం *{total_signals_found}* స్టాక్స్‌లో తాజా సిగ్నల్స్ దొరికాయి. వివరాలు పైన పంపాను."
+        send_telegram_alert(success_msg)
 
-# 🌟 బ్యాక్‌గ్రౌండ్ లూప్ ఒక విడిగా థ్రెడ్ (Thread) లో రన్ అవుతుంది
-def background_scheduler():
+    # ⏳ 10 నిమిషాల గ్యాప్
+    print(f"📊 4:00 PM సిగ్నల్స్ పంపాను. నిబంధన ప్రకారం 3 నిమిషాలు ఆగుతున్నాను...")
+    time.sleep(180)
+
+    # 📥 3. విడివిడి వార్తల మెసేజ్
+    print("📰 CNBC వార్తల వెతుకులాట ప్రారంభమైంది...")
+    for index, stock_item in enumerate(signals_today_list):
+        s_name = stock_item['name']
+        s_type = stock_item['type']
+        
+        telugu_news, news_url = get_cnbc_news_free(s_name)
+        
+        if telugu_news and news_url:
+            emoji = "🟢" if s_type == "BUY" else "🔴"
+            
+            # మీరు అడిగిన పక్కా ఫార్మాట్ (చిన్న యుఆర్ఎల్ క్లిక్ లింక్ తో)
+            news_msg = (
+                f"{emoji} *{s_name}* ({s_type}) వార్త:\n"
+                f"{telugu_news}\n\n"
+                f"🔗 [అసలైన CNBC వార్త చూడటానికి ఇక్కడ క్లిక్ చేయండి]({news_url})"
+            )
+            send_telegram_alert(news_msg, disable_preview=False)
+            print(f"✅ {s_name} విడివిడి వార్త మెసేజ్ పంపబడింది.")
+            
+            # ప్రతి విడివిడి వార్తకు మధ్య 2 నిమిషాల గ్యాప్
+            if index < len(signals_today_list) - 1:
+                print("⏳ తదుపరి స్టాక్ వార్త కోసం 2 నిమిషాలు ఆగుతున్నాను...")
+                time.sleep(120)
+
+# 🔄 బ్యాక్‌గ్రౌండ్ టైమర్ లూప్ రన్ చేసే ఫంక్షన్
+def background_scanner_loop():
     ist = pytz.timezone('Asia/Kolkata')
-    start_time_str = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
-    
-    welcome_msg = f"🚀 *CHANTI SCANNER Web Service START అయింది సార్!*\n\n📅 *సమయం:* `{start_time_str} IST`\n⏰ ప్రతిరోజు సాయంత్రం *5:00 PM IST* ki ఆటోమేటిక్‌గా స్కాన్ రన్ అవుతుంది."
-    send_telegram_alert(welcome_msg)
-    
     already_run_today = False
+    print("🚀 బాట్ బ్యాక్‌గ్రౌండ్‌లో రన్ అవుతోంది... ప్రతిరోజు సాయంత్రం 4:00 PM IST కి స్కాన్ ప్రారంభమవుతుంది.")
+
     while True:
         now_ist = datetime.now(ist)
         current_hour = now_ist.hour
         current_minute = now_ist.minute
         current_weekday = now_ist.weekday()
 
-        if current_weekday < 5:
-            if current_hour == 17 and current_minute == 0 and not already_run_today:
+        if current_weekday < 5:  # శని, ఆదివారాలు కాకుండా
+            # సాయంత్రం 4:00 PM (16:00 గంటలు)
+            if current_hour == 16 and current_minute == 0 and not already_run_today:
+                print(f"⏰ సమయం సాయంత్రం 4:00 PM అయింది. స్కాన్ స్టార్ట్ చేస్తున్నాను...")
                 run_scanner()
-                already_run_today = True  
+                already_run_today = True
+            
             if current_hour == 0:
                 already_run_today = False
         else:
@@ -215,12 +306,18 @@ def background_scheduler():
 
         time.sleep(30)
 
-# సర్వర్ ఆన్ కాగానే బ్యాక్‌గ్రౌండ్ లూప్‌ను స్టార్ట్ చేస్తుంది
-@app.on_event("startup")
-def startup_event():
-    threading.Thread(target=background_scheduler, daemon=True).start()
-
+# --- 🚀 Render సర్వర్ స్టార్టప్ మెయిన్ లాజిక్ ---
 if __name__ == "__main__":
-    # Render ఇచ్చే పోర్ట్‌ను ఆటోమేటిక్‌గా రీడ్ చేస్తుంది
-    port = int(os.environ.get("PORT", 10000))
+    ist = pytz.timezone('Asia/Kolkata')
+    startup_time = datetime.now(ist).strftime('%Y-%m-%d %I:%M:%S %p')
+    
+    start_msg = f"🚀 *CHANTI WEB BOT STARTED ON RENDER!*\n\nసార్, చంటి గెట్ ట్రేడర్ బాట్ మరియు FastAPI వెబ్ సర్వర్ Render లో విజయవంతంగా రన్ అయ్యాయి.\n📅 *సమయం:* `{startup_time} (IST)`"
+    send_telegram_alert(start_msg)
+
+    # 🧵 టైమర్ లూప్ ని విడిగా ఒక Thread లో రన్ చేస్తున్నాం (దీనివల్ల వెబ్ సర్వర్ బ్లాక్ అవ్వదు)
+    scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
+    scanner_thread.start()
+
+    # Render ఇచ్చిన పోర్ట్ ని రీడ్ చేసి FastAPI ని రన్ చేయడం
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
