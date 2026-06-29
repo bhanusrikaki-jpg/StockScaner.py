@@ -23,8 +23,8 @@ CHAT_ID = os.environ.get("CHAT_ID")
 # FastAPI యాప్ క్రియేషన్ (Render కోసం)
 app = FastAPI()
 
-# 🚀 Render పంపే GET మరియు HEAD రెండింటినీ అనుమతించి 200 OK ఇచ్చేలా మార్చాను సార్
-@app.get("/", methods=["GET", "HEAD"])
+# ✅ కరెక్ట్ కోడ్ (దీన్ని రీప్లేస్ చేయండి సార్)
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"status": "running", "bot_name": "Chanti 50EMA AI Scanner", "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
