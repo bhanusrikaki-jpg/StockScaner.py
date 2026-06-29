@@ -292,7 +292,7 @@ def background_scanner_loop():
         current_weekday = now_ist.weekday()
 
         if current_weekday < 5:
-            if current_hour == 17 and current_minute == 15 and not already_run_today:
+            if current_hour == 17 and current_minute == 20 and not already_run_today:
                 print(f"⏰ సమయం సాయంత్రం 4:00 PM అయింది. స్కాన్ స్టార్ట్ చేస్తున్నాను...")
                 run_scanner()
                 already_run_today = True
