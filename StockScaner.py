@@ -302,10 +302,10 @@ def background_scanner_loop():
                 pass
             last_ping_time = time.time()
 
-        # 📊 2. రోజువారీ సాయంత్రం 5:20 PM స్కానర్ ట్రిగ్గర్
+        # 📊 2. రోజువారీ సాయంత్రం 4:00 PM స్కానర్ ట్రిగ్గర్
         if current_weekday < 5:
-            if (current_hour > 17 or (current_hour == 4 and current_minute >= 0)) and not already_run_today:
-                print(f"⏰ సమయం సాయంత్రం 5:20 PM దాటింది. స్కాన్ స్టార్ట్ చేస్తున్నాను...")
+            if (current_hour > 16 or (current_hour == 16 and current_minute >= 0)) and not already_run_today:
+                print(f"⏰ సమయం సాయంత్రం 4:00 PM దాటింది. స్కాన్ స్టార్ట్ చేస్తున్నాను...")
                 run_scanner()
                 already_run_today = True
             
